@@ -44,6 +44,17 @@ python -m ai_detective analyze ./datasets/incidents/mongodb.log --output ./repor
 
 The deterministic mode is intended to work without an LLM provider or API key.
 
+## Separate frontend gateway
+
+The core `ai_detective` package remains a CLI-only Python project. It contains no HTTP server and
+no frontend integration files. The optional backend-detection gateway is an independent project in
+[`services/live_gateway`](services/live_gateway/README.md). It imports the core package as a
+dependency, probes existing services on ports 5000/3000 or a user-provided URL, reads an accessible
+HTTP log source, and serves the separate React frontend.
+
+Install and run that gateway by following its own README. This boundary keeps the CLI testable and
+deployable without FastAPI, Uvicorn or frontend concerns.
+
 ## Groq configuration
 
 The AI investigation mode uses Groq for tool-calling and final report generation. The model never

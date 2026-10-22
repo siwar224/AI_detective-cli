@@ -206,9 +206,12 @@ The project foundation is available:
 - initial CLI entry point;
 - documented primary log format;
 - sample incident logs;
-- initial automated test.
+- text, JSON and raw-line parsing;
+- structured `LogEvent` models;
+- deterministic error classification;
+- automated tests and Ruff validation.
 
-The deterministic parser is the next implementation milestone. The AI investigation layer will only be added after the non-AI analysis path is reliable and tested.
+The next milestone is deterministic analysis: error counts, repeated-error grouping, timelines and a complete `--no-ai` report. The AI investigation layer will only be added after that non-AI analysis path is reliable and tested.
 
 ## Testing
 
@@ -233,11 +236,10 @@ The test strategy separates deterministic unit and integration tests from evalua
 
 ## Roadmap
 
-1. Implement and test the primary log parser.
-2. Add deterministic statistics, repeated-error grouping and timelines.
-3. Define validated report models and the `--no-ai` export path.
-4. Add the evidence store and read-only investigation tools.
-5. Integrate a configurable LLM provider and bounded orchestration.
-6. Add incident datasets, security tests and evaluation metrics.
-7. Complete JSON/Markdown reporting, Docker and continuous integration.
+1. Add deterministic statistics, repeated-error grouping and timelines.
+2. Define validated report models and the `--no-ai` export path.
+3. Add the evidence store and read-only investigation tools.
+4. Integrate a configurable LLM provider and bounded orchestration.
+5. Add incident datasets, security tests and evaluation metrics.
+6. Complete JSON/Markdown reporting, Docker and continuous integration.
 

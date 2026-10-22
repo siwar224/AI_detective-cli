@@ -13,4 +13,4 @@ build/
 .env
 reports/*.json
 reports/*.md
-
+.history

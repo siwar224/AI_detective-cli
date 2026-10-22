@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from collections import Counter
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+from .agent.orchestrator import (
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_MAX_TOOL_CALLS,
+    run_investigation,
+)
 from .analyzer.classifier import classify_event
 from .analyzer.deterministic import analyze_events
 from .config import DEFAULT_MAX_FILE_SIZE_BYTES, DEFAULT_MAX_LINES
@@ -43,15 +52,38 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MAX_LINES,
         help="Maximum number of input lines.",
     )
+    analyze_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="Maximum AI investigation iterations (default: .env or 5).",
+    )
+    analyze_parser.add_argument(
+        "--max-tool-calls",
+        type=int,
+        default=None,
+        help="Maximum read-only tool calls (default: .env or 8).",
+    )
     return parser
 
 
 def main() -> None:
     """Point d'entrée de la CLI."""
+    load_dotenv()
     parser = build_parser()
     args = parser.parse_args()
 
     if args.command == "analyze":
+        max_iterations = int(
+            args.max_iterations
+            if args.max_iterations is not None
+            else os.getenv("AI_DETECTIVE_MAX_ITERATIONS", DEFAULT_MAX_ITERATIONS)
+        )
+        max_tool_calls = int(
+            args.max_tool_calls
+            if args.max_tool_calls is not None
+            else os.getenv("AI_DETECTIVE_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)
+        )
         path = Path(args.log_file)
         try:
             events = parse_file(
@@ -62,6 +94,17 @@ def main() -> None:
         except (InputFileError, ValueError) as exc:
             parser.error(str(exc))
         analysis = analyze_events(events)
+
+        if not args.no_ai:
+            report = run_investigation(
+                events,
+                analysis,
+                max_iterations=max_iterations,
+                max_tool_calls=max_tool_calls,
+            )
+            print(json.dumps(report.model_dump(mode="json"), indent=2, ensure_ascii=True))
+            return
+
         categories = Counter(
             category
             for event in events

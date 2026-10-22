@@ -1,73 +1,140 @@
 # AI Detective CLI
 
-AI Detective CLI is a Python command-line agent that investigates technical incidents from application logs and produces structured, evidence-based diagnostic reports.
+AI Detective is a Python incident-investigation platform that transforms application logs into evidence-based diagnostic reports and practical developer actions.
 
-The project combines deterministic log analysis with a constrained AI investigation layer. Python extracts and verifies observable facts first. The AI can then formulate and compare possible causes, but every important conclusion must be linked to real log evidence.
+This repository contains two independently installable Python responsibilities:
 
-## Why this project exists
+- the core CLI and analysis engine in `src/ai_detective`;
+- the optional Live Gateway in `services/live_gateway`, which connects the separate React dashboard to an already-running backend.
 
-Incident investigation often requires manually searching large log files, identifying repeated failures, reconstructing a timeline and distinguishing symptoms from probable causes. LLMs can accelerate this work, but their answers may contain unsupported assumptions or inaccurate references.
+The dedicated frontend is maintained in a separate repository: [AI Detective Frontend](https://github.com/siwar224/AI-detecitve-frontend). The separation keeps backend analysis, HTTP integration and user-interface concerns independent.
 
-AI Detective CLI is designed to address both problems:
+## The developer story
 
-- deterministic analysis provides reproducible facts;
-- a read-only investigation agent explores the available evidence;
-- structured reports make hypotheses, contradictions and limitations explicit;
-- backend validation prevents the model from citing non-existent log lines;
-- a `--no-ai` mode makes the deterministic engine usable without an API key.
+Imagine that you are working on a backend project and a request suddenly fails. Your terminal contains database errors, authentication failures, timeouts and warnings from dependent services. Reading the raw output line by line takes time, while sending everything directly to an LLM can produce vague or unsupported answers.
 
-## Target MVP
+AI Detective creates a controlled investigation path:
 
-The MVP is a standalone terminal application. It does not require a web server, browser interface or production access.
+1. Analyze a local log file from the CLI, or connect the dashboard to a running backend.
+2. Parse and preserve the original evidence, including source line numbers.
+3. Calculate deterministic statistics, recurring error groups and useful timeline information.
+4. Separate observable facts from probable causes and hypotheses.
+5. Optionally ask Groq for a bounded investigation grounded in the available evidence.
+6. Optionally enrich recommendations with one bounded Stack Overflow search.
+7. Review the proposed actions and copy a professional prompt for one selected error or the complete incident.
 
-The application will:
+The system helps the developer understand what happened and what to verify next. It does not silently change source code, execute arbitrary commands or apply an automatic fix.
 
-1. accept a `.log` or `.txt` file from the command line;
-2. validate that the file exists, is readable, non-empty and within the configured size limit;
-3. parse each line into a structured `LogEvent` while preserving its original line number;
-4. calculate deterministic statistics, repeated errors and an exploitable timeline;
-5. store the original evidence for later verification;
-6. optionally let an AI investigator query bounded read-only tools;
-7. generate up to three ranked hypotheses with supporting and contradicting evidence;
-8. validate the final report with Pydantic;
-9. export the result as JSON and Markdown.
+## Current architecture
 
-## Target usage
-
-Once the MVP workflow is implemented, the application will be used as follows:
-
-```bash
-python -m ai_detective analyze ./datasets/incidents/mongodb.log
-python -m ai_detective analyze ./datasets/incidents/mongodb.log --no-ai
-python -m ai_detective analyze ./datasets/incidents/mongodb.log --output ./reports/
+```text
+Local log file or already-running backend
+                  |
+                  v
+        Live Gateway (optional FastAPI service)
+        - discovers ports 5000/3000
+        - accepts a user-provided backend URL
+        - connects to an explicit log source
+        - protects analysis and prompt requests
+                  |
+                  v
+          Python analysis engine
+        - text and JSON parsing
+        - deterministic statistics
+        - evidence store
+        - bounded Groq investigation
+        - optional Stack Overflow enrichment
+                  |
+                  +--------------------+
+                  v                    v
+         JSON/Markdown report    Separate React dashboard
 ```
 
-The deterministic mode is intended to work without an LLM provider or API key.
+### Core CLI
 
-## Separate frontend gateway
+The core `ai_detective` package remains usable without a browser, HTTP server or LLM provider. Deterministic analysis is the fallback and the source of truth for parsed facts.
 
-The core `ai_detective` package remains a CLI-only Python project. It contains no HTTP server and
-no frontend integration files. The optional backend-detection gateway is an independent project in
-[`services/live_gateway`](services/live_gateway/README.md). It imports the core package as a
-dependency, probes existing services on ports 5000/3000 or a user-provided URL, reads an accessible
-HTTP log source, and serves the separate React frontend.
+### Live Gateway
 
-Install and run that gateway by following its own README. This boundary keeps the CLI testable and
-deployable without FastAPI, Uvicorn or frontend concerns.
+The gateway is deliberately outside the core CLI package. It does not start, stop or inspect the terminal of another process. It probes `localhost:5000` and `localhost:3000` after the user chooses live mode, or accepts a backend URL entered by the user.
 
-## Groq configuration
+The gateway can:
 
-The AI investigation mode uses Groq for tool-calling and final report generation. The model never
-receives direct shell access: it can only request the bounded local and external read-only tools
-described below.
+- verify that an existing backend is reachable;
+- connect to an explicit log-source URL;
+- read plain text, JSON records, NDJSON or a stream snapshot;
+- analyze local JSON/JSONL content sent by the frontend without copying the file into this repository;
+- work without requiring the source endpoint to be named `/logs`;
+- generate one bounded, copyable resolution prompt;
+- return clear errors for unavailable sources, invalid content and rate limits.
 
-Create a local environment file from the template and add the API key obtained from the Groq console:
+The frontend sends no request before the user chooses an input mode. In JSON mode, no backend discovery is performed.
+
+## Main gateway endpoints
+
+The Live Gateway runs on port `8000` by default:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `GET /health` | Verify that the gateway is available. |
+| `GET /api/backends/discover` | Check supported local backend candidates. |
+| `POST /api/backends/connect` | Validate the selected backend and log source. |
+| `POST /api/analyze/source` | Fetch and analyze an HTTP log source. |
+| `POST /api/analyze/content` | Analyze JSON or text content provided by the frontend. |
+| `POST /api/prompt/generate` | Generate a professional prompt from bounded context. |
+
+The gateway caches identical analyses for a short period and caches generated prompts for a longer period. Prompt generation also has a per-client cooldown to prevent accidental double-clicks and Groq `429 Too Many Requests` responses.
+
+## CLI usage
+
+Analyze a local incident without an LLM:
 
 ```powershell
-Copy-Item .env.example .env
+python -m ai_detective analyze .\datasets\incidents\mongodb.log --no-ai
 ```
 
-Then edit `.env`:
+Analyze with the optional AI investigation enabled:
+
+```powershell
+python -m ai_detective analyze .\datasets\incidents\mongodb.log
+```
+
+Export reports to a directory:
+
+```powershell
+python -m ai_detective analyze .\datasets\incidents\mongodb.log --output .\reports\
+```
+
+The deterministic path remains useful when Groq is unavailable or no API key is configured.
+
+## Installation
+
+Requirements:
+
+- Python 3.11 or newer;
+- PowerShell on Windows, or an equivalent shell;
+- Node.js 18 or newer only when the separate frontend is used.
+
+Create a virtual environment and install the core project:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -e ".[dev]"
+```
+
+Install the optional gateway package:
+
+```powershell
+python -m pip install -e ".\services\live_gateway"
+Copy-Item .\services\live_gateway\.env.example .\services\live_gateway\.env
+```
+
+## Groq and external recommendations
+
+The AI investigation uses Groq for tool-calling and final report generation. The model never receives direct shell access; it can only request the bounded read-only tools described below.
+
+Configure the gateway or CLI environment locally:
 
 ```dotenv
 GROQ_API_KEY=your_groq_api_key_here
@@ -78,66 +145,76 @@ AI_DETECTIVE_MAX_EXTERNAL_CALLS=1
 # Optional: STACKEXCHANGE_API_KEY=...
 ```
 
-Run the AI investigation with:
+Run AI analysis with:
 
-```bash
-python -m ai_detective analyze ./datasets/incidents/mongodb.log
+```powershell
+python -m ai_detective analyze .\datasets\incidents\mongodb.log
 ```
 
-Use `--no-ai` to run only the deterministic pipeline. If the key is missing or the provider is
-unavailable, the CLI returns a deterministic report with the reason recorded in `limitations`.
+Use `--no-ai` for deterministic analysis only. If the key is missing or the provider is unavailable, the report records the limitation and continues with deterministic results.
 
-## How the investigation works
+When **AI + Stack Overflow** is enabled in the dashboard, the investigation performs one bounded Stack Overflow/Stack Exchange lookup for the leading error. The dashboard labels those recommendations and displays their source links. In deterministic mode, recommendations come only from the logs and are not presented as Stack Overflow advice.
 
-```text
-Log file
-   |
-   v
-File validation
-   |
-   v
-Log parser -------------> Structured LogEvent objects
-   |                                      |
-   v                                      v
-Deterministic analyzer              Evidence store
-   |                                      |
-   +------------------+-------------------+
-                      v
-              Investigation orchestrator
-                 |                 |
-                 v                 v
-          Read-only tools       LLM provider
-                 \                 /
-                  v               v
-                 Validated investigation report
-                              |
-                    +---------+---------+
-                    v                   v
-                  JSON              Markdown
-```
+## Investigation tools and evidence
 
-The LLM is not the source of truth. It receives bounded information, uses explicitly allowed tools and proposes hypotheses. Python remains responsible for parsing, evidence lookup, schema validation and reference verification.
-
-## Read-only investigation tools
-
-The AI investigator will have access to four bounded tools:
+The investigator has access to bounded read-only tools:
 
 - `get_error_summary`: inspect recurring errors and their frequencies;
 - `get_events_around`: inspect events near a line number or timestamp;
-- `search_similar_lines`: find related log messages.
-- `search_external_solutions`: search Stack Overflow through the official Stack Exchange API for
-  resolution suggestions related to an existing deterministic error group.
+- `search_similar_lines`: find related log messages;
+- `search_external_solutions`: search Stack Overflow through the official Stack Exchange API for resolution suggestions related to an existing deterministic error group.
 
-External search results are suggestions, not evidence. The final report preserves their URLs and
-only accepts resolution steps that cite URLs returned by the controlled external tool. No arbitrary
-shell command, production connection or automatic remediation is exposed to the agent.
+External search results are suggestions, not incident evidence. The final report preserves their URLs and only accepts resolution steps that cite URLs returned by the controlled external tool. No arbitrary shell command, production connection or automatic remediation is exposed to the agent.
 
-The Stack Exchange lookup works without an API key for small tests. An optional request key can be
-configured as `STACKEXCHANGE_API_KEY` when a separate API quota is needed.
+The final report can include:
 
-## Log format
+- incident summary;
+- parsed event and level statistics;
+- repeated error groups and source lines;
+- timeline information;
+- probable causes with confidence levels;
+- supporting and contradicting evidence;
+- recommended checks and resolution steps;
+- external recommendations clearly separated from incident evidence;
+- limitations and unavailable data.
 
-The initial format is intentionally simple and documented in [`docs/log-format.md`](docs/log-format.md):
+Every evidence reference contains a source line, quote and reason. References are validated against the evidence store before they are accepted in the report.
+
+## Run the Live Gateway
+
+Start the gateway from this repository:
+
+```powershell
+python -m uvicorn live_gateway.api:app --app-dir services/live_gateway/src --port 8000
+```
+
+The backend being inspected must be started separately on its own port, commonly `5000` or `3000`. The gateway does not launch that backend and does not require it to expose a new `/logs` route.
+
+## Connect the separate frontend
+
+```powershell
+git clone https://github.com/siwar224/AI-detecitve-frontend.git
+cd AI-detecitve-frontend
+npm install
+npm run dev
+```
+
+The frontend uses `http://127.0.0.1:8000` for the gateway by default. To change it, create `.env.local` in the frontend repository:
+
+```dotenv
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
+The dashboard supports two explicit input modes:
+
+- **Live backend URL**: discover or enter a backend and analyze its log source;
+- **JSON log file**: choose a local JSON/JSONL file and analyze it without backend discovery.
+
+The dashboard displays every detected error occurrence, multiple resolution steps, optional Stack Overflow references and a prompt scoped either to selected errors or to the complete incident.
+
+## Supported log input
+
+The documented text format is available in [`docs/log-format.md`](docs/log-format.md):
 
 ```text
 TIMESTAMP LEVEL SERVICE [COMPONENT] MESSAGE
@@ -149,153 +226,96 @@ Example:
 2026-10-21T10:15:04Z ERROR api [database] MongoDB connection refused
 ```
 
-Each parsed event preserves:
-
-- the original line number;
-- the complete raw line;
-- the timestamp when it is valid;
-- the log level;
-- the service;
-- the normalized message;
-- available metadata;
-- a parsing status: `valid`, `partial` or `invalid`.
-
-Missing information is represented as missing data. The parser never invents values.
-
-## Report design
-
-The final report is structured around a clear distinction between observations and hypotheses.
-
-It includes:
-
-- incident summary;
-- deterministic statistics;
-- significant timeline events;
-- up to three possible causes;
-- confidence level: `low`, `medium` or `high`;
-- supporting evidence;
-- contradicting evidence;
-- recommended checks;
-- analysis limitations.
-
-Every evidence reference contains a line number, a quoted excerpt and a reason. References are checked against the original evidence store before the report is exported.
-
-## Reliability and security principles
-
-- Log content is treated as untrusted data, never as an instruction to the agent.
-- The agent is restricted to explicitly approved read-only tools.
-- Source log files are never modified.
-- API keys are read from environment variables and must not be committed.
-- Production deployments should redact secrets and tokens before external model calls.
-- File size, prompt size, model calls and investigation iterations are bounded.
-- Invalid model responses are rejected or reported clearly.
-- The deterministic mode remains available when the model provider is unavailable.
-
-## Incident scenarios
-
-The evaluation dataset will contain at least six reproducible scenarios:
-
-- MongoDB connection refused;
-- expired authentication token;
-- port already in use;
-- external API timeout;
-- permission denied;
-- simulated increase in error frequency.
-
-Each scenario will include logs and a reference description of the known facts and relevant lines.
+The parser preserves the original line, line number, timestamp when valid, level, service, normalized message and parsing status. JSON logs are supported through the gateway content-analysis path.
 
 ## Project structure
 
 ```text
-ai-detective/
+AI_detective-cli/
 ├── src/ai_detective/
-│   ├── __main__.py              # python -m ai_detective
 │   ├── cli.py                   # command-line interface
-│   ├── parser/                  # log parsing
+│   ├── parser/                  # text and JSON log parsing
 │   ├── analyzer/                # deterministic analysis
 │   ├── evidence/                # evidence storage and lookup
-│   ├── agent/                   # orchestration and read-only tools
-│   ├── llm/                     # provider abstraction
-│   ├── models/                  # Pydantic models
-│   └── reporting/               # JSON and Markdown exporters
-├── tests/
-│   ├── unit/
-│   ├── integration/
-│   └── evaluation/
-├── datasets/incidents/          # reproducible incident logs
-├── reports/                     # generated reports
+│   ├── agent/                   # bounded investigation orchestration
+│   ├── external/                # optional Stack Exchange lookup
+│   ├── llm/                     # provider abstraction and Groq adapter
+│   └── models/                  # validated report models
+├── services/live_gateway/
+│   ├── src/live_gateway/        # optional FastAPI gateway
+│   ├── tests/                   # gateway tests
+│   └── README.md                # gateway-specific instructions
+├── tests/                       # core tests
+├── datasets/incidents/          # reproducible sample incidents
 ├── docs/                        # technical documentation
 ├── pyproject.toml
-├── Dockerfile
+├── .env                         # local only, ignored by Git
 └── README.md
 ```
 
-The repository is intentionally built in increments. The parser, deterministic analysis, evidence
-tools and bounded AI investigation are implemented as separate, tested milestones.
+The React frontend is intentionally not part of this Python repository. Keep frontend changes in the dedicated frontend repository and backend/gateway changes here.
 
-## Installation
+## Configuration and security
 
-Create and activate a virtual environment:
+Keep secrets in local environment files and never commit them:
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+```dotenv
+GROQ_API_KEY=your_key_here
+AI_DETECTIVE_ALLOW_REMOTE_SOURCE=false
 ```
 
-Install the project and development dependencies:
+`GROQ_API_KEY` is optional. Remote-source access should stay disabled unless the deployment explicitly requires it and its network policy has been reviewed.
 
-```bash
-python -m pip install -e ".[dev]"
+The project follows these principles:
+
+- logs are untrusted data, never instructions for the agent;
+- source files are read only and are never modified by analysis;
+- the agent has no arbitrary shell, production or remediation access;
+- model calls, source fetches, prompt size and investigation iterations are bounded;
+- external recommendations are labeled separately from incident evidence;
+- secrets are loaded from environment variables and masked before model calls;
+- deterministic analysis remains available when the LLM provider is unavailable;
+- the local gateway must not be exposed publicly without authentication and network restrictions.
+
+## Testing
+
+Run the core tests:
+
+```powershell
+python -m pytest -q
+```
+
+Run lint checks when Ruff is installed:
+
+```powershell
+ruff check .
+```
+
+Run gateway tests when the gateway extras are installed:
+
+```powershell
+python -m pytest services/live_gateway/tests -q
 ```
 
 ## Current status
 
-The project foundation is available:
+The current version includes:
 
-- Python package configuration;
-- isolated virtual environment;
-- initial CLI entry point;
-- documented primary log format;
-- sample incident logs;
-- text, JSON and raw-line parsing;
-- structured `LogEvent` models;
-- deterministic error classification;
-- deterministic statistics, repeated-error grouping and timelines;
-- simple time-window error peak detection;
-- input validation with configurable size, line-count and encoding limits;
-- bounded read-only evidence tools (`get_error_summary`, `get_events_around`, `search_similar_lines`);
-- controlled Stack Overflow solution retrieval with a one-call default limit;
-- Groq tool-calling orchestration with iteration and tool-call limits;
-- validated investigation reports with exact source-line evidence checks;
-- automated tests and Ruff validation.
+- deterministic text and JSON-oriented log analysis;
+- recurring error and warning statistics;
+- evidence-grounded investigation models;
+- optional Groq analysis with bounded external enrichment;
+- an independently installable Live Gateway for backend discovery and log sources;
+- prompt generation with rate protection and short-lived caching;
+- a separate React dashboard for live backend and JSON-file workflows;
+- reproducible tests for the core and gateway behavior.
 
-The next milestone is Markdown/report-file export, incident evaluation datasets and automated quality/security checks.
+## Scope boundaries
 
-## Testing
+AI Detective is a read-only investigation and recommendation tool. It does not:
 
-Run the test suite with:
-
-```bash
-python -m pytest -q
-```
-
-The test strategy separates deterministic unit and integration tests from evaluations that require an LLM. This keeps the core behavior reproducible and testable without external services.
-
-## Out of scope for the MVP
-
-- web or graphical user interface;
-- direct production access;
-- arbitrary shell execution;
-- automatic incident remediation;
-- real-time monitoring and alerting;
-- Kubernetes integration;
-- vector database or advanced RAG pipeline;
-- complex agent framework without a demonstrated need.
-
-## Roadmap
-
-1. Complete JSON/Markdown report-file export.
-2. Add incident datasets, security tests and evaluation metrics.
-3. Add provider-independent evaluation and optional model comparison.
-4. Complete Docker and continuous integration.
-
+- apply fixes automatically;
+- execute arbitrary commands suggested by an LLM;
+- connect directly to production databases;
+- replace application monitoring, alerting or incident-management systems;
+- guarantee that an external recommendation is correct for every environment.

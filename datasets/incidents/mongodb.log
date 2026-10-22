@@ -1,0 +1,4 @@
+2026-10-21T10:15:04Z ERROR api [database] MongoDB connection refused
+2026-10-21T10:15:05Z ERROR api [database] MongoDB connection refused
+2026-10-21T10:15:06Z INFO api [startup] Retrying connection
+

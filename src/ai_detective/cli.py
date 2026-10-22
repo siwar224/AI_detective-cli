@@ -11,6 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .agent.orchestrator import (
+    DEFAULT_MAX_EXTERNAL_CALLS,
     DEFAULT_MAX_ITERATIONS,
     DEFAULT_MAX_TOOL_CALLS,
     run_investigation,
@@ -64,6 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Maximum read-only tool calls (default: .env or 8).",
     )
+    analyze_parser.add_argument(
+        "--max-external-calls",
+        type=int,
+        default=None,
+        help="Maximum Stack Overflow searches (default: .env or 1).",
+    )
     return parser
 
 
@@ -84,6 +91,11 @@ def main() -> None:
             if args.max_tool_calls is not None
             else os.getenv("AI_DETECTIVE_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)
         )
+        max_external_calls = int(
+            args.max_external_calls
+            if args.max_external_calls is not None
+            else os.getenv("AI_DETECTIVE_MAX_EXTERNAL_CALLS", DEFAULT_MAX_EXTERNAL_CALLS)
+        )
         path = Path(args.log_file)
         try:
             events = parse_file(
@@ -101,6 +113,7 @@ def main() -> None:
                 analysis,
                 max_iterations=max_iterations,
                 max_tool_calls=max_tool_calls,
+                max_external_calls=max_external_calls,
             )
             print(json.dumps(report.model_dump(mode="json"), indent=2, ensure_ascii=True))
             return

@@ -51,6 +51,12 @@ class EvidenceStore:
         """Return one source event for backend-side evidence validation."""
         return self._by_line.get(line_number)
 
+    def get_error_group(self, index: int) -> Any:
+        """Return one deterministic error group for external lookup."""
+        if not 0 <= index < len(self._analysis.top_errors):
+            raise EvidenceLookupError(f"Error group index {index} does not exist")
+        return self._analysis.top_errors[index]
+
     def get_events_around(
         self,
         *,

@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 from ai_detective.evidence.store import EvidenceLookupError, EvidenceStore
+from ai_detective.external.stackexchange import StackExchangeSearcher
 
 
 class ErrorSummaryArguments(BaseModel):
@@ -32,6 +33,11 @@ class EventsAroundArguments(BaseModel):
 class SimilarLinesArguments(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     limit: int = Field(default=10, ge=1, le=10)
+
+
+class ExternalSolutionArguments(BaseModel):
+    error_index: int = Field(default=0, ge=0, le=9)
+    limit: int = Field(default=3, ge=1, le=3)
 
 
 TOOL_SCHEMAS: list[dict[str, Any]] = [
@@ -83,6 +89,28 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_external_solutions",
+            "description": (
+                "Search Stack Overflow for resolution suggestions related to one existing "
+                "deterministic error group. Results are external suggestions, never incident evidence."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "error_index": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9,
+                    },
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 3},
+                },
+                "additionalProperties": False,
+            },
+        },
+    },
 ]
 
 
@@ -90,6 +118,8 @@ def execute_tool(
     name: str,
     arguments: dict[str, Any],
     store: EvidenceStore,
+    *,
+    external_searcher: StackExchangeSearcher | None = None,
 ) -> str:
     """Validate and execute exactly one allow-listed read-only tool."""
     try:
@@ -115,6 +145,11 @@ def execute_tool(
         elif name == "search_similar_lines":
             args = SimilarLinesArguments.model_validate(arguments)
             result = store.search_similar_lines(args.query, limit=args.limit)
+        elif name == "search_external_solutions":
+            args = ExternalSolutionArguments.model_validate(arguments)
+            searcher = external_searcher or StackExchangeSearcher()
+            error = store.get_error_group(args.error_index)
+            result = searcher.search(error, limit=args.limit)
         else:
             raise EvidenceLookupError(f"Tool is not allowed: {name}")
     except (EvidenceLookupError, TypeError, ValueError) as exc:

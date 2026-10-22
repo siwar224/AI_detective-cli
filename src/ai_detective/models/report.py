@@ -29,12 +29,32 @@ class Hypothesis(BaseModel):
     recommended_checks: list[str] = Field(default_factory=list, max_length=5)
 
 
+class ExternalSolution(BaseModel):
+    """An external source returned by the controlled knowledge lookup."""
+
+    title: str = Field(min_length=1, max_length=500)
+    source_url: str = Field(min_length=1, max_length=1000)
+    answer_url: str | None = Field(default=None, max_length=1000)
+    excerpt: str = Field(min_length=1, max_length=2000)
+    score: int | None = None
+    accepted: bool = False
+
+
+class ResolutionStep(BaseModel):
+    """A suggested action linked to one or more retrieved external sources."""
+
+    action: str = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=1, max_length=500)
+    source_urls: list[str] = Field(min_length=1, max_length=3)
+
+
 class InvestigationDraft(BaseModel):
     """Model-produced part of a report; deterministic facts are injected by Python."""
 
     incident_summary: str = Field(min_length=1, max_length=2000)
     hypotheses: list[Hypothesis] = Field(default_factory=list, max_length=3)
     recommendations: list[str] = Field(default_factory=list, max_length=10)
+    resolution_steps: list[ResolutionStep] = Field(default_factory=list, max_length=10)
     limitations: list[str] = Field(default_factory=list, max_length=20)
 
 
@@ -46,4 +66,9 @@ class InvestigationReport(BaseModel):
     timeline: list[TimelineEvent]
     hypotheses: list[Hypothesis] = Field(default_factory=list, max_length=3)
     recommendations: list[str] = Field(default_factory=list, max_length=10)
+    resolution_steps: list[ResolutionStep] = Field(default_factory=list, max_length=10)
+    external_solutions: list[ExternalSolution] = Field(
+        default_factory=list,
+        max_length=10,
+    )
     limitations: list[str] = Field(default_factory=list, max_length=20)

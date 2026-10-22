@@ -27,7 +27,7 @@ The application will:
 3. parse each line into a structured `LogEvent` while preserving its original line number;
 4. calculate deterministic statistics, repeated errors and an exploitable timeline;
 5. store the original evidence for later verification;
-6. optionally let an AI investigator query three read-only tools;
+6. optionally let an AI investigator query bounded read-only tools;
 7. generate up to three ranked hypotheses with supporting and contradicting evidence;
 8. validate the final report with Pydantic;
 9. export the result as JSON and Markdown.
@@ -47,8 +47,8 @@ The deterministic mode is intended to work without an LLM provider or API key.
 ## Groq configuration
 
 The AI investigation mode uses Groq for tool-calling and final report generation. The model never
-receives direct shell access: it can only request the three local, read-only evidence tools described
-below.
+receives direct shell access: it can only request the bounded local and external read-only tools
+described below.
 
 Create a local environment file from the template and add the API key obtained from the Groq console:
 
@@ -63,6 +63,8 @@ GROQ_API_KEY=your_groq_api_key_here
 GROQ_MODEL=openai/gpt-oss-120b
 AI_DETECTIVE_MAX_ITERATIONS=5
 AI_DETECTIVE_MAX_TOOL_CALLS=8
+AI_DETECTIVE_MAX_EXTERNAL_CALLS=1
+# Optional: STACKEXCHANGE_API_KEY=...
 ```
 
 Run the AI investigation with:
@@ -107,13 +109,20 @@ The LLM is not the source of truth. It receives bounded information, uses explic
 
 ## Read-only investigation tools
 
-The AI investigator will have access to three bounded tools:
+The AI investigator will have access to four bounded tools:
 
 - `get_error_summary`: inspect recurring errors and their frequencies;
 - `get_events_around`: inspect events near a line number or timestamp;
 - `search_similar_lines`: find related log messages.
+- `search_external_solutions`: search Stack Overflow through the official Stack Exchange API for
+  resolution suggestions related to an existing deterministic error group.
 
-No arbitrary shell command, production connection or automatic remediation is exposed to the agent.
+External search results are suggestions, not evidence. The final report preserves their URLs and
+only accepts resolution steps that cite URLs returned by the controlled external tool. No arbitrary
+shell command, production connection or automatic remediation is exposed to the agent.
+
+The Stack Exchange lookup works without an API key for small tests. An optional request key can be
+configured as `STACKEXCHANGE_API_KEY` when a separate API quota is needed.
 
 ## Log format
 
@@ -244,6 +253,7 @@ The project foundation is available:
 - simple time-window error peak detection;
 - input validation with configurable size, line-count and encoding limits;
 - bounded read-only evidence tools (`get_error_summary`, `get_events_around`, `search_similar_lines`);
+- controlled Stack Overflow solution retrieval with a one-call default limit;
 - Groq tool-calling orchestration with iteration and tool-call limits;
 - validated investigation reports with exact source-line evidence checks;
 - automated tests and Ruff validation.

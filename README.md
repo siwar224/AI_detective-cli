@@ -27,7 +27,7 @@ The application will:
 3. parse each line into a structured `LogEvent` while preserving its original line number;
 4. calculate deterministic statistics, repeated errors and an exploitable timeline;
 5. store the original evidence for later verification;
-6. optionally let an AI investigator query three read-only tools;
+6. optionally let an AI investigator query bounded read-only tools;
 7. generate up to three ranked hypotheses with supporting and contradicting evidence;
 8. validate the final report with Pydantic;
 9. export the result as JSON and Markdown.
@@ -43,6 +43,49 @@ python -m ai_detective analyze ./datasets/incidents/mongodb.log --output ./repor
 ```
 
 The deterministic mode is intended to work without an LLM provider or API key.
+
+## Separate frontend gateway
+
+The core `ai_detective` package remains a CLI-only Python project. It contains no HTTP server and
+no frontend integration files. The optional backend-detection gateway is an independent project in
+[`services/live_gateway`](services/live_gateway/README.md). It imports the core package as a
+dependency, probes existing services on ports 5000/3000 or a user-provided URL, reads an accessible
+HTTP log source, and serves the separate React frontend.
+
+Install and run that gateway by following its own README. This boundary keeps the CLI testable and
+deployable without FastAPI, Uvicorn or frontend concerns.
+
+## Groq configuration
+
+The AI investigation mode uses Groq for tool-calling and final report generation. The model never
+receives direct shell access: it can only request the bounded local and external read-only tools
+described below.
+
+Create a local environment file from the template and add the API key obtained from the Groq console:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Then edit `.env`:
+
+```dotenv
+GROQ_API_KEY=your_groq_api_key_here
+GROQ_MODEL=openai/gpt-oss-120b
+AI_DETECTIVE_MAX_ITERATIONS=5
+AI_DETECTIVE_MAX_TOOL_CALLS=8
+AI_DETECTIVE_MAX_EXTERNAL_CALLS=1
+# Optional: STACKEXCHANGE_API_KEY=...
+```
+
+Run the AI investigation with:
+
+```bash
+python -m ai_detective analyze ./datasets/incidents/mongodb.log
+```
+
+Use `--no-ai` to run only the deterministic pipeline. If the key is missing or the provider is
+unavailable, the CLI returns a deterministic report with the reason recorded in `limitations`.
 
 ## How the investigation works
 
@@ -77,13 +120,20 @@ The LLM is not the source of truth. It receives bounded information, uses explic
 
 ## Read-only investigation tools
 
-The AI investigator will have access to three bounded tools:
+The AI investigator will have access to four bounded tools:
 
 - `get_error_summary`: inspect recurring errors and their frequencies;
 - `get_events_around`: inspect events near a line number or timestamp;
 - `search_similar_lines`: find related log messages.
+- `search_external_solutions`: search Stack Overflow through the official Stack Exchange API for
+  resolution suggestions related to an existing deterministic error group.
 
-No arbitrary shell command, production connection or automatic remediation is exposed to the agent.
+External search results are suggestions, not evidence. The final report preserves their URLs and
+only accepts resolution steps that cite URLs returned by the controlled external tool. No arbitrary
+shell command, production connection or automatic remediation is exposed to the agent.
+
+The Stack Exchange lookup works without an API key for small tests. An optional request key can be
+configured as `STACKEXCHANGE_API_KEY` when a separate API quota is needed.
 
 ## Log format
 
@@ -136,7 +186,7 @@ Every evidence reference contains a line number, a quoted excerpt and a reason. 
 - The agent is restricted to explicitly approved read-only tools.
 - Source log files are never modified.
 - API keys are read from environment variables and must not be committed.
-- Secrets and tokens should be masked before external model calls.
+- Production deployments should redact secrets and tokens before external model calls.
 - File size, prompt size, model calls and investigation iterations are bounded.
 - Invalid model responses are rejected or reported clearly.
 - The deterministic mode remains available when the model provider is unavailable.
@@ -180,7 +230,8 @@ ai-detective/
 └── README.md
 ```
 
-The repository is intentionally built in increments. Only the foundation is currently implemented; parser, analysis, evidence, orchestration and reporting components are added and tested as separate milestones.
+The repository is intentionally built in increments. The parser, deterministic analysis, evidence
+tools and bounded AI investigation are implemented as separate, tested milestones.
 
 ## Installation
 
@@ -206,9 +257,19 @@ The project foundation is available:
 - initial CLI entry point;
 - documented primary log format;
 - sample incident logs;
-- initial automated test.
+- text, JSON and raw-line parsing;
+- structured `LogEvent` models;
+- deterministic error classification;
+- deterministic statistics, repeated-error grouping and timelines;
+- simple time-window error peak detection;
+- input validation with configurable size, line-count and encoding limits;
+- bounded read-only evidence tools (`get_error_summary`, `get_events_around`, `search_similar_lines`);
+- controlled Stack Overflow solution retrieval with a one-call default limit;
+- Groq tool-calling orchestration with iteration and tool-call limits;
+- validated investigation reports with exact source-line evidence checks;
+- automated tests and Ruff validation.
 
-The deterministic parser is the next implementation milestone. The AI investigation layer will only be added after the non-AI analysis path is reliable and tested.
+The next milestone is Markdown/report-file export, incident evaluation datasets and automated quality/security checks.
 
 ## Testing
 
@@ -233,11 +294,8 @@ The test strategy separates deterministic unit and integration tests from evalua
 
 ## Roadmap
 
-1. Implement and test the primary log parser.
-2. Add deterministic statistics, repeated-error grouping and timelines.
-3. Define validated report models and the `--no-ai` export path.
-4. Add the evidence store and read-only investigation tools.
-5. Integrate a configurable LLM provider and bounded orchestration.
-6. Add incident datasets, security tests and evaluation metrics.
-7. Complete JSON/Markdown reporting, Docker and continuous integration.
+1. Complete JSON/Markdown report-file export.
+2. Add incident datasets, security tests and evaluation metrics.
+3. Add provider-independent evaluation and optional model comparison.
+4. Complete Docker and continuous integration.
 

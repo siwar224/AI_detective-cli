@@ -3,6 +3,24 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
+from collections import Counter
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+from .agent.orchestrator import (
+    DEFAULT_MAX_EXTERNAL_CALLS,
+    DEFAULT_MAX_ITERATIONS,
+    DEFAULT_MAX_TOOL_CALLS,
+    run_investigation,
+)
+from .analyzer.classifier import classify_event
+from .analyzer.deterministic import analyze_events
+from .config import DEFAULT_MAX_FILE_SIZE_BYTES, DEFAULT_MAX_LINES
+from .parser.log_parser import parse_file
+from .validation import InputFileError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -15,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     analyze_parser = subparsers.add_parser(
         "analyze",
-        help="Analyser un fichier de logs (fonctionnalité à venir).",
+        help="Analyser un fichier de logs.",
     )
     analyze_parser.add_argument("log_file", help="Chemin du fichier de logs.")
     analyze_parser.add_argument(
@@ -23,14 +41,111 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Limiter l'exécution à l'analyse déterministe.",
     )
+    analyze_parser.add_argument(
+        "--max-size-mb",
+        type=int,
+        default=DEFAULT_MAX_FILE_SIZE_BYTES // (1024 * 1024),
+        help="Maximum input file size in MiB.",
+    )
+    analyze_parser.add_argument(
+        "--max-lines",
+        type=int,
+        default=DEFAULT_MAX_LINES,
+        help="Maximum number of input lines.",
+    )
+    analyze_parser.add_argument(
+        "--max-iterations",
+        type=int,
+        default=None,
+        help="Maximum AI investigation iterations (default: .env or 5).",
+    )
+    analyze_parser.add_argument(
+        "--max-tool-calls",
+        type=int,
+        default=None,
+        help="Maximum read-only tool calls (default: .env or 8).",
+    )
+    analyze_parser.add_argument(
+        "--max-external-calls",
+        type=int,
+        default=None,
+        help="Maximum Stack Overflow searches (default: .env or 1).",
+    )
     return parser
 
 
 def main() -> None:
     """Point d'entrée de la CLI."""
+    load_dotenv()
     parser = build_parser()
     args = parser.parse_args()
 
     if args.command == "analyze":
-        parser.error("L'analyse sera implémentée dans une prochaine étape.")
+        max_iterations = int(
+            args.max_iterations
+            if args.max_iterations is not None
+            else os.getenv("AI_DETECTIVE_MAX_ITERATIONS", DEFAULT_MAX_ITERATIONS)
+        )
+        max_tool_calls = int(
+            args.max_tool_calls
+            if args.max_tool_calls is not None
+            else os.getenv("AI_DETECTIVE_MAX_TOOL_CALLS", DEFAULT_MAX_TOOL_CALLS)
+        )
+        max_external_calls = int(
+            args.max_external_calls
+            if args.max_external_calls is not None
+            else os.getenv("AI_DETECTIVE_MAX_EXTERNAL_CALLS", DEFAULT_MAX_EXTERNAL_CALLS)
+        )
+        path = Path(args.log_file)
+        try:
+            events = parse_file(
+                path,
+                max_size_bytes=args.max_size_mb * 1024 * 1024,
+                max_lines=args.max_lines,
+            )
+        except (InputFileError, ValueError) as exc:
+            parser.error(str(exc))
+        analysis = analyze_events(events)
+
+        if not args.no_ai:
+            report = run_investigation(
+                events,
+                analysis,
+                max_iterations=max_iterations,
+                max_tool_calls=max_tool_calls,
+                max_external_calls=max_external_calls,
+            )
+            print(json.dumps(report.model_dump(mode="json"), indent=2, ensure_ascii=True))
+            return
+
+        categories = Counter(
+            category
+            for event in events
+            if (category := classify_event(event)) is not None
+        )
+
+        print(f"Analyzed {len(events)} line(s) from {path}")
+        print(f"Formats: {Counter(event.source_format for event in events)}")
+        print(f"Parse status: {Counter(event.parse_status for event in events)}")
+        print(f"Error categories: {dict(categories)}")
+        print(f"Levels: {analysis.levels_count}")
+        print("Top errors:")
+        for error in analysis.top_errors:
+            print(
+                f"  {error.count}x {error.message} "
+                f"(lines: {error.line_numbers})"
+            )
+        print(f"Timeline events: {len(analysis.timeline)}")
+        print(f"Error peaks: {len(analysis.error_peaks)}")
+        if analysis.limitations:
+            print("Limitations:")
+            for limitation in analysis.limitations:
+                print(f"  - {limitation}")
+
+        for event in events:
+            category = classify_event(event) or "-"
+            print(
+                f"line {event.line_number}: {event.level or '-':<8} "
+                f"{event.parse_status:<7} {category:<16} {event.message or event.raw_line}"
+            )
 

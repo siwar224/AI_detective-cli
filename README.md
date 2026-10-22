@@ -209,10 +209,12 @@ The project foundation is available:
 - text, JSON and raw-line parsing;
 - structured `LogEvent` models;
 - deterministic error classification;
+- deterministic statistics, repeated-error grouping and timelines;
+- simple time-window error peak detection;
 - input validation with configurable size, line-count and encoding limits;
 - automated tests and Ruff validation.
 
-The next milestone is deterministic analysis: error counts, repeated-error grouping, timelines and a complete `--no-ai` report. The AI investigation layer will only be added after that non-AI analysis path is reliable and tested.
+The next milestone is validated report models and JSON/Markdown output. The AI investigation layer will only be added after the non-AI analysis path is reliable and tested.
 
 ## Testing
 
@@ -237,10 +239,9 @@ The test strategy separates deterministic unit and integration tests from evalua
 
 ## Roadmap
 
-1. Add deterministic statistics, repeated-error grouping and timelines.
-2. Define validated report models and the `--no-ai` export path.
-3. Add the evidence store and read-only investigation tools.
-4. Integrate a configurable LLM provider and bounded orchestration.
-5. Add incident datasets, security tests and evaluation metrics.
-6. Complete JSON/Markdown reporting, Docker and continuous integration.
+1. Define validated report models and the `--no-ai` export path.
+2. Add the evidence store and read-only investigation tools.
+3. Integrate a configurable LLM provider and bounded orchestration.
+4. Add incident datasets, security tests and evaluation metrics.
+5. Complete JSON/Markdown reporting, Docker and continuous integration.
 

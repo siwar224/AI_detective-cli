@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 
 from .analyzer.classifier import classify_event
+from .analyzer.deterministic import analyze_events
 from .config import DEFAULT_MAX_FILE_SIZE_BYTES, DEFAULT_MAX_LINES
 from .parser.log_parser import parse_file
 from .validation import InputFileError
@@ -60,6 +61,7 @@ def main() -> None:
             )
         except (InputFileError, ValueError) as exc:
             parser.error(str(exc))
+        analysis = analyze_events(events)
         categories = Counter(
             category
             for event in events
@@ -70,6 +72,19 @@ def main() -> None:
         print(f"Formats: {Counter(event.source_format for event in events)}")
         print(f"Parse status: {Counter(event.parse_status for event in events)}")
         print(f"Error categories: {dict(categories)}")
+        print(f"Levels: {analysis.levels_count}")
+        print("Top errors:")
+        for error in analysis.top_errors:
+            print(
+                f"  {error.count}x {error.message} "
+                f"(lines: {error.line_numbers})"
+            )
+        print(f"Timeline events: {len(analysis.timeline)}")
+        print(f"Error peaks: {len(analysis.error_peaks)}")
+        if analysis.limitations:
+            print("Limitations:")
+            for limitation in analysis.limitations:
+                print(f"  - {limitation}")
 
         for event in events:
             category = classify_event(event) or "-"

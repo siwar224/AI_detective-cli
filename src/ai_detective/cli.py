@@ -7,7 +7,9 @@ from collections import Counter
 from pathlib import Path
 
 from .analyzer.classifier import classify_event
+from .config import DEFAULT_MAX_FILE_SIZE_BYTES, DEFAULT_MAX_LINES
 from .parser.log_parser import parse_file
+from .validation import InputFileError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -28,6 +30,18 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Limiter l'exécution à l'analyse déterministe.",
     )
+    analyze_parser.add_argument(
+        "--max-size-mb",
+        type=int,
+        default=DEFAULT_MAX_FILE_SIZE_BYTES // (1024 * 1024),
+        help="Maximum input file size in MiB.",
+    )
+    analyze_parser.add_argument(
+        "--max-lines",
+        type=int,
+        default=DEFAULT_MAX_LINES,
+        help="Maximum number of input lines.",
+    )
     return parser
 
 
@@ -38,10 +52,14 @@ def main() -> None:
 
     if args.command == "analyze":
         path = Path(args.log_file)
-        if not path.is_file():
-            parser.error(f"Log file not found: {path}")
-
-        events = parse_file(path)
+        try:
+            events = parse_file(
+                path,
+                max_size_bytes=args.max_size_mb * 1024 * 1024,
+                max_lines=args.max_lines,
+            )
+        except (InputFileError, ValueError) as exc:
+            parser.error(str(exc))
         categories = Counter(
             category
             for event in events

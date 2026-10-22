@@ -209,6 +209,7 @@ The project foundation is available:
 - text, JSON and raw-line parsing;
 - structured `LogEvent` models;
 - deterministic error classification;
+- input validation with configurable size, line-count and encoding limits;
 - automated tests and Ruff validation.
 
 The next milestone is deterministic analysis: error counts, repeated-error grouping, timelines and a complete `--no-ai` report. The AI investigation layer will only be added after that non-AI analysis path is reliable and tested.
